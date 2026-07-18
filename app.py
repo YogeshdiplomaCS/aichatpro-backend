@@ -9,7 +9,6 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "localhost"),
@@ -21,7 +20,9 @@ DB_CONFIG = {
 
 
 def get_db():
-    return psycopg2.connect(**DB_CONFIG)
+    config = DB_CONFIG.copy()
+    config["sslmode"] = "require"
+    return psycopg2.connect(**config)
 
 
 def hash_pw(password):
@@ -44,10 +45,9 @@ def register():
         db = get_db()
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            INSERT INTO users (email, name, age, password)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id, email, name, age
-        """, (email, name, age, password))
+                    INSERT INTO users (email, name, age, password)
+                    VALUES (%s, %s, %s, %s) RETURNING id, email, name, age
+                    """, (email, name, age, password))
         user = cur.fetchone()
         db.commit()
         cur.close()
@@ -58,7 +58,7 @@ def register():
             "email": user["email"],
         })
     except Exception as e:
-        return jsonify({"error": "Email already exists or DB error: " + str(e)}), 400
+        return jsonify({"error": "Email already exists"}), 400
 
 
 @app.route("/login", methods=["POST"])
@@ -70,14 +70,18 @@ def login():
         db = get_db()
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            SELECT id, name, email FROM users
-            WHERE email=%s AND password=%s
-        """, (email, password))
+                    SELECT id, name, email
+                    FROM users
+                    WHERE email = %s
+                      AND password = %s
+                    """, (email, password))
         user = cur.fetchone()
         cur.close()
         db.close()
+
         if not user:
             return jsonify({"error": "Email or Password is wrong"}), 401
+
         return jsonify({
             "user_id": user["id"],
             "name": user["name"],
@@ -109,7 +113,7 @@ def chat():
         "liquid/lfm2.5-1.2b-instruct:free",
     ]
 
-    reply = "All AI models are busy right now. Please wait 30 seconds and try again."
+    reply = "All AI models are busy. Please try again."
 
     for model in models:
         try:
@@ -132,14 +136,12 @@ def chat():
                 timeout=30
             )
             resp_json = response.json()
-            print("Tried:", model, "| Response:", resp_json)
             if "choices" in resp_json:
                 content = resp_json["choices"][0]["message"]["content"]
                 if content and len(content.strip()) > 0:
                     reply = content.strip()
                     break
         except Exception as e:
-            print("Error:", model, str(e))
             continue
 
     try:
@@ -160,6 +162,8 @@ def chat():
         pass
 
     return jsonify({"reply": reply})
+
+
 @app.route("/history/<int:user_id>", methods=["GET"])
 def history(user_id):
     try:
@@ -173,7 +177,7 @@ def history(user_id):
         cur.close()
         db.close()
         return jsonify(list(messages))
-    except Exception as e:
+    except Exception:
         return jsonify([])
 
 
@@ -181,6 +185,5 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  AI Chat Pro Backend")
     print("  Created by Yogesh")
-    print("  Diploma in CS and Engineering")
     print("=" * 50)
     app.run(host="0.0.0.0", port=8080, debug=True)
