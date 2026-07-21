@@ -24,7 +24,6 @@ def get_db():
     config["sslmode"] = "require"
     return psycopg2.connect(**config)
 
-
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
